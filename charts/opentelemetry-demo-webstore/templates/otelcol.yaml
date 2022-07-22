@@ -1,3 +1,5 @@
+{{- $ := set . "name" "otelcol" }}
+
 {{- define "otel-demo.otelcol.config" -}}
 receivers:
   otlp:
@@ -11,7 +13,12 @@ exporters:
     tls:
       insecure: true
   {{- end}}
+
+  {{- if .Values.observability.prometheus.enabled }}
+  prometheus:
+    endpoint: "0.0.0.0:9464"
   logging:
+  {{- end}}
 
 processors:
   batch:
@@ -28,11 +35,16 @@ service:
         {{- if .Values.observability.jaeger.enabled }}
         - jaeger
         {{- end}}
+    
+    {{- if .Values.observability.prometheus.enabled }}
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, logging]
+    {{- end}}
 {{- end }}
 
-{{- $ := set . "name" "otelcol" }}
 {{- $otelconfig := include "otel-demo.otelcol.config" .}}
-
 {{- if .Values.observability.otelcol.enabled -}}
 ---
 apiVersion: v1
@@ -79,6 +91,8 @@ spec:
             protocol: TCP
           - containerPort: 8888
             protocol: TCP
+          - containerPort: 9464
+            protocol: TCP
         volumeMounts:
           - mountPath: /etc/otelcol-config.yml
             name: otel-config 
@@ -108,6 +122,10 @@ spec:
       port: 8888
       protocol: TCP
       targetPort: 8888
+    - name: prometheus 
+      port: 9464
+      protocol: TCP
+      targetPort: 9464 
   selector:
       {{- include "otel-demo.selectorLabels" . | nindent 4 }}
 {{- end }}
