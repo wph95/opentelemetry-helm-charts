@@ -1,0 +1,89 @@
+{{/*
+Get Prometheus config 
+*/}}
+{{- define "otel-demo.prometheus.config" -}}
+global:
+  evaluation_interval: 30s
+  scrape_interval: 5s
+scrape_configs:
+- job_name: otel
+  static_configs:
+  - targets:
+    - '{{ include "otel-demo.name" . }}-otelcol:9464'
+- job_name: otel-collector
+  static_configs:
+  - targets:
+    - '{{ include "otel-demo.name" . }}-otelcol:8888'
+{{- end }}
+{{/* end of otel-demo.prometheus.config */}}
+
+
+{{- $ := set . "name" "prometheus" }}
+{{- if $.Values.observability.prometheus.enabled -}}
+{{- $pconfig := include "otel-demo.prometheus.config" .}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "otel-demo.name" . }}-{{.name}}-config
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+data:
+  prometheus-config.yaml: |
+    {{- $pconfig | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "otel-demo.name" . }}-{{ .name }}
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "otel-demo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        checksum/otel_config: {{ sha256sum $pconfig | trunc 63 }}
+        {{- include "otel-demo.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - image: quay.io/prometheus/prometheus:v2.34.0
+        name: prometheus
+        args: 
+          - --web.console.templates=/etc/prometheus/consoles
+          - --web.console.libraries=/etc/prometheus/console_libraries
+          - --storage.tsdb.retention.time=1h
+          - --config.file=/etc/prometheus/prometheus-config.yaml
+          - --storage.tsdb.path=/prometheus
+          - --web.enable-lifecycle
+          - --web.route-prefix=/
+        ports:
+          - containerPort: 9090
+            protocol: TCP
+        volumeMounts:
+          - mountPath: /etc/prometheus/prometheus-config.yaml
+            name: prometheus-config 
+            subPath: prometheus-config.yaml
+      volumes:
+        - configMap:
+            name: {{ include "otel-demo.name" . }}-{{.name}}-config
+          name: prometheus-config 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "otel-demo.name" . }}-{{ .name }}
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: prometheus 
+      port: 9090
+      protocol: TCP
+      targetPort: 9090
+  selector:
+      {{- include "otel-demo.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -3,6 +3,10 @@ observability:
     enabled: true
   jaeger:
     enabled: true
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
 
 image:
   repository: otel/demo

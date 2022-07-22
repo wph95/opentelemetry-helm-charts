@@ -1,0 +1,94 @@
+{{- $ := set . "name" "grafana" }}
+
+{{- if $.Values.observability.grafana.enabled -}}
+{{- $prefix := include "otel-demo.name" .}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $prefix }}-grafana-dashboards
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+data:
+{{ (.Files.Glob "grafana/dashboards/*").AsConfig | indent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $prefix }}-grafana-config
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+data:
+  default_datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: webstore
+      type: prometheus
+      url: http://{{ $prefix }}-prometheus:9090
+      editable: true
+  default_dashboard.yaml: | 
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10 #how often Grafana will scan for changed dashboards
+      options:
+        path: /var/lib/grafana/dashboards
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $prefix }}-{{ .name }}
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "otel-demo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "otel-demo.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - image: grafana/grafana:9.0.1
+        name: grafana 
+        ports:
+          - containerPort: 3000 
+            protocol: TCP
+        volumeMounts:
+          - mountPath: /var/lib/grafana/dashboards
+            name: grafana-dashboards
+          - mountPath: /etc/grafana/provisioning/datasources/default_datasources.yaml
+            name: grafana-config 
+            subPath: default_datasources.yaml
+          - mountPath: /etc/grafana/provisioning/dashboards/default_dashboard.yaml
+            name: grafana-config
+            subPath: default_dashboard.yaml
+      volumes:
+        - configMap:
+            name: {{ $prefix }}-{{.name}}-dashboards
+          name: grafana-dashboards
+        - configMap:
+            name: {{ $prefix }}-{{.name}}-config
+          name: grafana-config 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $prefix }}-{{ .name }}
+  labels:
+    {{- include "otel-demo.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: grafana 
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+  selector:
+      {{- include "otel-demo.selectorLabels" . | nindent 4 }}
+{{- end }}
